@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  web:
+    image: ${DOCKERHUB_USERNAME:-sjoerdbo3}/josephanson:latest
+    container_name: josephanson-web
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - NUXT_PUBLIC_STUDIO_TOKENS=${NUXT_PUBLIC_STUDIO_TOKENS:-}
+        - CHROME_TOKEN=${CHROME_TOKEN:-}
+        - REDIS_HOST=${REDIS_HOST:-redis}
+        - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+        - MINIO_URL=${MINIO_URL:-minio}
+        - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+        - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+    restart: unless-stopped
+    environment:
+      - NUXT_PUBLIC_STUDIO_TOKENS=${NUXT_PUBLIC_STUDIO_TOKENS:-}
+      - CHROME_TOKEN=${CHROME_TOKEN:-}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - MINIO_URL=${MINIO_URL:-minio}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - redis
+      - minio
+      - chrome
+    networks:
+      - josephanson_network
+
+  redis:
+    image: redis:alpine
+    container_name: josephanson-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redispassword}
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - josephanson_network
+
+  minio:
+    image: minio/minio:latest
+    container_name: josephanson-minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    restart: unless-stopped
+    networks:
+      - josephanson_network
+
+  # Create initial buckets and set policies
+  minio-init:
+    image: minio/mc
+    container_name: josephanson-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      /usr/bin/mc config host add myminio http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-minioadmin};
+      /usr/bin/mc mb --ignore-existing myminio/screenshots;
+      /usr/bin/mc policy set public myminio/screenshots;
+      exit 0;
+      "
+    networks:
+      - josephanson_network
+
+  chrome:
+    image: browserless/chrome:latest
+    container_name: josephanson-chrome
+    environment:
+      - TOKEN=${CHROME_TOKEN:-}
+      - MAX_CONCURRENT_SESSIONS=10
+      - CONNECTION_TIMEOUT=300000
+      - KEEP_ALIVE=true
+    restart: unless-stopped
+    networks:
+      - josephanson_network
+
+networks:
+  josephanson_network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  minio_data:
